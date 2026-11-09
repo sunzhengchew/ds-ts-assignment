@@ -18,8 +18,11 @@ export const handler = async (
 ): Promise<APIGatewayAuthorizerResult> => {
   const token = parseCookies(event.headers?.cookie ?? event.headers?.Cookie)['token'];
   if (!token) {
-    return policy('anonymous', 'Deny', event.methodArn);
-  }
+  console.log("Authorization failed: token cookie is missing");
+  return policy('anonymous', 'Deny', event.methodArn);
+}
+
+console.log("Token cookie received; checking validity");
 
   try {
     const payload = await verifier.verify(token);
