@@ -96,10 +96,39 @@ export class AppApiStack extends cdk.Stack {
     const moviesResource = api.root.addResource('movies');
     const addRoleResource = moviesResource.addResource("roles");
 
+    // POST /movies/roles requires the administrator's API key.
     addRoleResource.addMethod(
       "POST",
-      new apig.LambdaIntegration(addMovieRoleFn)
+      new apig.LambdaIntegration(addMovieRoleFn),
+      {
+        apiKeyRequired: true,
+      }
     );
+
+    // Generate an API key during deployment.
+    const adminApiKey = api.addApiKey("AdminApiKey");
+
+    // Set request limits for clients using this usage plan.
+    const adminUsagePlan = api.addUsagePlan("AdminUsagePlan", {
+      name: "AdminUsagePlan",
+      throttle: {
+        rateLimit: 5,  // Target average of 5 requests per second.
+        burstLimit: 10, // Allow short bursts of requests.
+      },
+    });
+
+    // Associate the administrator's key with the usage plan.
+    adminUsagePlan.addApiKey(adminApiKey);
+
+    // Apply the usage plan to this API's deployed stage.
+    adminUsagePlan.addApiStage({
+      stage: api.deploymentStage,
+    });
+
+    // Display the key ID so its secret value can be retrieved separately.
+    new cdk.CfnOutput(this, "AdminApiKeyId", {
+      value: adminApiKey.keyId,
+    });
 
     const movieRolesResource = moviesResource.addResource('{movieID}').addResource('roles');
     movieRolesResource.addMethod('GET', new apig.LambdaIntegration(getMovieRolesFn));
