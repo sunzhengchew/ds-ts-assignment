@@ -28,6 +28,7 @@ const cognitoErrorStatus: Record<string, number> = {
   UserNotFoundException: 401,
   UserNotConfirmedException: 403,
   UsernameExistsException: 409,
+  AliasExistsException: 409,// Email already belongs to another user.
   InvalidPasswordException: 400,
   InvalidParameterException: 400,
   CodeMismatchException: 400,
