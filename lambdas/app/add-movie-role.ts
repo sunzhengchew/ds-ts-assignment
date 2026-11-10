@@ -4,6 +4,8 @@ import type {
 } from "aws-lambda";
 import { TransactionCanceledException } from "@aws-sdk/client-dynamodb";
 import { TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
+import { isResponse, parseJsonObject, response } from "../shared/http";
+
 import {
   actorKey,
   ddb,
@@ -11,14 +13,16 @@ import {
   type Role,
   tableName,
 } from "../shared/db";
-import { isResponse, parseJsonObject, response } from "../shared/http";
 
 export const handler = async (
   event: APIGatewayProxyEvent
 ): Promise<APIGatewayProxyResult> => {
+
+  // Parse the request body and return any JSON parsing error
   const body = parseJsonObject(event);
   if (isResponse(body)) return body;
 
+  // Check that movieId is a positive, safe integer
   if (
     typeof body.movieId !== "number" ||
     !Number.isSafeInteger(body.movieId) ||
@@ -29,6 +33,7 @@ export const handler = async (
     });
   }
 
+  // Check that actorId is a positive, safe integer.
   if (
     typeof body.actorId !== "number" ||
     !Number.isSafeInteger(body.actorId) ||
@@ -39,6 +44,8 @@ export const handler = async (
     });
   }
 
+
+  // Reject a missing role name or one containing only spaces
   if (
     typeof body.roleName !== "string" ||
     body.roleName.trim() === ""
@@ -47,7 +54,7 @@ export const handler = async (
       message: "roleName must be a non-empty string",
     });
   }
-
+  // Reject a missing description or one containing only spaces
   if (
     typeof body.roleDescription !== "string" ||
     body.roleDescription.trim() === ""
@@ -56,7 +63,7 @@ export const handler = async (
       message: "roleDescription must be a non-empty string",
     });
   }
-
+  // Create the validated role and remove surrounding spaces
   const role: Role = {
     movieId: body.movieId,
     actorId: body.actorId,
@@ -64,7 +71,11 @@ export const handler = async (
     roleDescription: body.roleDescription.trim(),
   };
 
+
+
   try {
+    // Perform all checks and the write as one transaction.
+    // If any condition fails, the role is not saved.
     await ddb.send(
       new TransactWriteCommand({
         TransactItems: [
@@ -78,7 +89,9 @@ export const handler = async (
               ConditionExpression: "attribute_exists(PK)",
             },
           },
+
           {
+            // Check that the specified actor exists.
             ConditionCheck: {
               TableName: tableName,
               Key: {
@@ -88,7 +101,9 @@ export const handler = async (
               ConditionExpression: "attribute_exists(PK)",
             },
           },
+
           {
+            // Save the role using the movie and actor keys.
             Put: {
               TableName: tableName,
               Item: {
@@ -96,21 +111,24 @@ export const handler = async (
                 SK: actorKey(role.actorId),
                 ...role,
               },
+              // Prevent overwriting an existing movie/actor role
               ConditionExpression: "attribute_not_exists(PK)",
             },
           },
         ],
       })
     );
-
+    // Return model data without exposing DynamoDB keys.
     return response(201, {
       message: "Role added",
       data: role,
     });
   } catch (err) {
+     // Identify transaction condition failed
     if (err instanceof TransactionCanceledException) {
       const reasons = err.CancellationReasons;
 
+      // Reasons follow the order of TransactItems above
       if (reasons?.[0]?.Code === "ConditionalCheckFailed") {
         return response(404, { message: "Movie not found" });
       }
@@ -131,5 +149,6 @@ export const handler = async (
     return response(500, {
       message: "Internal server error",
     });
+
   }
 };
